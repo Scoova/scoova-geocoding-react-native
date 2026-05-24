@@ -1,0 +1,333 @@
+/**
+ * @scoova/geocoding-react-native
+ *
+ * React Native build of `@scoova/geocoding`. Same client surface, no native
+ * modules — uses React Native's bundled global `fetch`.
+ *
+ *     const client = new GeocodingClient({
+ *       apiKey: 'sk_live_…',
+ *       locale: 'fr',
+ *     });
+ */
+
+export type GeoLayer =
+  | 'venue' | 'address' | 'street' | 'neighbourhood' | 'borough'
+  | 'localadmin' | 'locality' | 'county' | 'macrocounty' | 'region'
+  | 'macroregion' | 'country' | 'coarse' | 'postalcode';
+
+export type GeoSource = 'osm' | 'oa' | 'wof' | 'gn' | 'whosonfirst' | 'openstreetmap' | 'openaddresses' | 'geonames';
+
+export interface SearchOptions {
+  focusPoint?: { lat: number; lon: number };
+  boundaryCircle?: { lat: number; lon: number; radiusKm: number };
+  boundaryCountry?: string | string[];
+  boundaryRect?: [number, number, number, number];
+  layers?: GeoLayer[];
+  sources?: GeoSource[];
+  size?: number;
+  lang?: string;
+}
+
+export interface ReverseOptions {
+  size?: number;
+  layers?: GeoLayer[];
+  sources?: GeoSource[];
+  boundaryCircleRadiusKm?: number;
+  boundaryCountry?: string | string[];
+  lang?: string;
+}
+
+export interface AutocompleteOptions {
+  focusPoint?: { lat: number; lon: number };
+  boundaryCountry?: string | string[];
+  layers?: GeoLayer[];
+  sources?: GeoSource[];
+  size?: number;
+  lang?: string;
+}
+
+export interface StructuredQuery {
+  address?: string;
+  neighbourhood?: string;
+  borough?: string;
+  locality?: string;
+  county?: string;
+  region?: string;
+  postalcode?: string;
+  country?: string;
+}
+
+export interface PlaceId {
+  source: string;
+  layer: string;
+  id: string;
+}
+
+export interface GeoFeature {
+  type: 'Feature';
+  geometry: { type: 'Point'; coordinates: [number, number] };
+  properties: {
+    id?: string;
+    gid?: string;
+    layer?: string;
+    source?: string;
+    name?: string;
+    label?: string;
+    country?: string;
+    country_code?: string;
+    region?: string;
+    locality?: string;
+    neighbourhood?: string;
+    street?: string;
+    housenumber?: string;
+    postalcode?: string;
+    confidence?: number;
+    accuracy?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface GeoResponse {
+  type: 'FeatureCollection';
+  features: GeoFeature[];
+  geocoding?: {
+    version?: string;
+    attribution?: string;
+    query?: Record<string, unknown>;
+    timestamp?: number;
+  };
+  bbox?: [number, number, number, number];
+}
+
+export interface BatchQuery {
+  id?: string;
+  text?: string;
+  lat?: number;
+  lon?: number;
+}
+
+export interface BatchResultRow {
+  id: string | null;
+  top?: GeoFeature | null;
+  error?: string;
+}
+
+export interface BatchResponse {
+  count: number;
+  results: BatchResultRow[];
+}
+
+export class GeocodingError extends Error {
+  constructor(message: string, public statusCode?: number) {
+    super(message);
+    this.name = 'GeocodingError';
+  }
+}
+
+const DEFAULT_BASE = 'https://geocoding.scoo-va.info';
+
+export interface ClientOptions {
+  /**
+   * Scoova API key — sent as `X-API-Key`. Falls back to
+   * `process.env.SCOOVA_API_KEY` (if `process` exists in the runtime),
+   * then to the public `demo` key.
+   */
+  apiKey?: string;
+  baseUrl?: string;
+  /**
+   * Default locale. Sent on every request as both `?locale=` and
+   * `Accept-Language`. Per-call `lang` overrides. Defaults to `'en'`.
+   */
+  locale?: string;
+  /** Legacy alias for `locale`. */
+  lang?: string;
+  androidPackage?: string;
+  iosBundleId?: string;
+  fetch?: typeof fetch;
+}
+
+function resolveApiKey(supplied?: string): string {
+  if (supplied) return supplied;
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  return proc?.env?.SCOOVA_API_KEY ?? 'demo';
+}
+
+export class GeocodingClient {
+  private baseUrl: string;
+  private apiKey: string;
+  private defaultLang: string;
+  private fetchImpl: typeof fetch;
+  private androidPackage?: string;
+  private iosBundleId?: string;
+
+  constructor(opts: ClientOptions = {}) {
+    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '');
+    this.apiKey = resolveApiKey(opts.apiKey);
+    this.defaultLang = opts.locale ?? opts.lang ?? 'en';
+    this.androidPackage = opts.androidPackage;
+    this.iosBundleId = opts.iosBundleId;
+    const f = opts.fetch ?? (typeof fetch !== 'undefined' ? fetch : undefined);
+    if (!f) throw new GeocodingError('GeocodingClient: no fetch available — pass one in options');
+    this.fetchImpl = opts.fetch ?? f.bind(typeof globalThis !== 'undefined' ? globalThis : null);
+  }
+
+  /** Forward search — "Burj Khalifa" → list of features. */
+  async search(text: string, options: SearchOptions = {}): Promise<GeoResponse> {
+    const params: Record<string, string> = { text };
+    this.applySearchParams(params, options);
+    return this.get<GeoResponse>('/v1/search', params);
+  }
+
+  /** Autocomplete — partial-text suggestions for typeaheads. */
+  async autocomplete(text: string, options: AutocompleteOptions = {}): Promise<GeoResponse> {
+    const params: Record<string, string> = { text };
+    this.applyAutocompleteParams(params, options);
+    return this.get<GeoResponse>('/v1/autocomplete', params);
+  }
+
+  /** Reverse geocode — coordinates → list of nearby features. */
+  async reverse(lat: number, lon: number, options: ReverseOptions = {}): Promise<GeoResponse> {
+    const params: Record<string, string> = {
+      'point.lat': String(lat),
+      'point.lon': String(lon),
+    };
+    if (options.size !== undefined) params.size = String(options.size);
+    if (options.layers?.length) params.layers = options.layers.join(',');
+    if (options.sources?.length) params.sources = options.sources.join(',');
+    if (options.boundaryCircleRadiusKm !== undefined) params['boundary.circle.radius'] = String(options.boundaryCircleRadiusKm);
+    if (options.boundaryCountry) params['boundary.country'] = Array.isArray(options.boundaryCountry) ? options.boundaryCountry.join(',') : options.boundaryCountry;
+    params.lang = options.lang ?? this.defaultLang;
+    return this.get<GeoResponse>('/v1/reverse', params);
+  }
+
+  /** Lookup by Pelias gid. */
+  async place(ids: string | string[]): Promise<GeoResponse> {
+    const params: Record<string, string> = {
+      ids: Array.isArray(ids) ? ids.join(',') : ids,
+      lang: this.defaultLang,
+    };
+    return this.get<GeoResponse>('/v1/place', params);
+  }
+
+  /** Structured search — fielded address. */
+  async searchStructured(query: StructuredQuery, options: SearchOptions = {}): Promise<GeoResponse> {
+    const params: Record<string, string> = {};
+    for (const [k, v] of Object.entries(query)) if (v) params[k] = String(v);
+    this.applySearchParams(params, options);
+    return this.get<GeoResponse>('/v1/search/structured', params);
+  }
+
+  /**
+   * Batch geocode — up to 100 mixed forward (`text`) or reverse
+   * (`lat` + `lon`) queries in a single round-trip. Each result is
+   * returned in input order with the supplied `id` echoed back.
+   */
+  async batch(queries: BatchQuery[]): Promise<BatchResponse> {
+    if (!Array.isArray(queries) || queries.length === 0) {
+      throw new GeocodingError('batch: queries cannot be empty');
+    }
+    if (queries.length > 100) {
+      throw new GeocodingError('batch: max 100 items per request');
+    }
+    const url = this.buildUrl('/v1/batch', { lang: this.defaultLang });
+    const res = await this.fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ items: queries }),
+    });
+    const body = await res.text();
+    if (!res.ok) throw new GeocodingError(body.slice(0, 200), res.status);
+    let parsed: { success?: boolean; data?: BatchResponse } | BatchResponse;
+    try {
+      parsed = JSON.parse(body);
+    } catch (e) {
+      throw new GeocodingError(`batch: invalid JSON — ${(e as Error).message}`);
+    }
+    if (typeof parsed === 'object' && parsed !== null && 'data' in parsed && parsed.data) {
+      return parsed.data as BatchResponse;
+    }
+    return parsed as BatchResponse;
+  }
+
+  // ─── internals ─────────────────────────────────────────────────────
+
+  private applySearchParams(params: Record<string, string>, o: SearchOptions): void {
+    if (o.focusPoint) {
+      params['focus.point.lat'] = String(o.focusPoint.lat);
+      params['focus.point.lon'] = String(o.focusPoint.lon);
+    }
+    if (o.boundaryCircle) {
+      params['boundary.circle.lat'] = String(o.boundaryCircle.lat);
+      params['boundary.circle.lon'] = String(o.boundaryCircle.lon);
+      params['boundary.circle.radius'] = String(o.boundaryCircle.radiusKm);
+    }
+    if (o.boundaryRect) {
+      const [minLon, minLat, maxLon, maxLat] = o.boundaryRect;
+      params['boundary.rect.min_lon'] = String(minLon);
+      params['boundary.rect.min_lat'] = String(minLat);
+      params['boundary.rect.max_lon'] = String(maxLon);
+      params['boundary.rect.max_lat'] = String(maxLat);
+    }
+    if (o.boundaryCountry) params['boundary.country'] = Array.isArray(o.boundaryCountry) ? o.boundaryCountry.join(',') : o.boundaryCountry;
+    if (o.layers?.length) params.layers = o.layers.join(',');
+    if (o.sources?.length) params.sources = o.sources.join(',');
+    if (o.size !== undefined) params.size = String(o.size);
+    params.lang = o.lang ?? this.defaultLang;
+  }
+
+  private applyAutocompleteParams(params: Record<string, string>, o: AutocompleteOptions): void {
+    if (o.focusPoint) {
+      params['focus.point.lat'] = String(o.focusPoint.lat);
+      params['focus.point.lon'] = String(o.focusPoint.lon);
+    }
+    if (o.boundaryCountry) params['boundary.country'] = Array.isArray(o.boundaryCountry) ? o.boundaryCountry.join(',') : o.boundaryCountry;
+    if (o.layers?.length) params.layers = o.layers.join(',');
+    if (o.sources?.length) params.sources = o.sources.join(',');
+    if (o.size !== undefined) params.size = String(o.size);
+    params.lang = o.lang ?? this.defaultLang;
+  }
+
+  private buildUrl(path: string, params: Record<string, string>): string {
+    const merged: Record<string, string> = { locale: this.defaultLang, ...params };
+    const qs = new URLSearchParams(merged).toString();
+    return `${this.baseUrl}${path}${qs ? '?' + qs : ''}`;
+  }
+
+  private authHeaders(): Record<string, string> {
+    const h: Record<string, string> = {
+      'X-API-Key': this.apiKey,
+      'Accept-Language': this.defaultLang,
+    };
+    if (this.androidPackage) h['X-Android-Package'] = this.androidPackage;
+    if (this.iosBundleId) h['X-Ios-Bundle-Identifier'] = this.iosBundleId;
+    return h;
+  }
+
+  private async get<T>(path: string, params: Record<string, string>): Promise<T> {
+    const url = this.buildUrl(path, params);
+    const res = await this.fetchImpl(url, {
+      headers: { ...this.authHeaders(), Accept: 'application/json' },
+    });
+    const body = await res.text();
+    if (!res.ok) throw new GeocodingError(body.slice(0, 200), res.status);
+    try {
+      return JSON.parse(body) as T;
+    } catch (e) {
+      throw new GeocodingError(`Invalid JSON from ${url}: ${(e as Error).message}`);
+    }
+  }
+}
+
+/** Convenience: extract `[lon, lat]` from a feature. */
+export function featureCoord(f: GeoFeature): [number, number] {
+  return f.geometry.coordinates;
+}
+
+/** Convenience: extract the human label ("Cairo, Egypt") from a feature. */
+export function featureLabel(f: GeoFeature): string {
+  return (f.properties.label as string) ?? (f.properties.name as string) ?? '';
+}
