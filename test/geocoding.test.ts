@@ -62,9 +62,9 @@ describe('GeocodingClient', () => {
   it('place joins multiple ids with commas', async () => {
     const fetchImpl = mockFetch();
     const client = new GeocodingClient({ apiKey: 'k', baseUrl: 'https://example.test', fetch: fetchImpl });
-    await client.place(['whosonfirst:locality:101751119', 'whosonfirst:country:85632343']);
+    await client.place(['place data:locality:101751119', 'place data:country:85632343']);
     const url = new URL(lastCall(fetchImpl)[0] as string);
-    expect(url.searchParams.get('ids')).toBe('whosonfirst:locality:101751119,whosonfirst:country:85632343');
+    expect(url.searchParams.get('ids')).toBe('place data:locality:101751119,place data:country:85632343');
   });
 
   it('searchStructured flattens query fields onto URL', async () => {

@@ -15,7 +15,7 @@ export type GeoLayer =
   | 'localadmin' | 'locality' | 'county' | 'macrocounty' | 'region'
   | 'macroregion' | 'country' | 'coarse' | 'postalcode';
 
-export type GeoSource = 'osm' | 'oa' | 'wof' | 'gn' | 'whosonfirst' | 'openstreetmap' | 'openaddresses' | 'geonames';
+export type GeoSource = 'osm' | 'oa' | 'wof' | 'gn' | 'place data' | 'openstreetmap' | 'openaddresses' | 'geonames';
 
 export interface SearchOptions {
   focusPoint?: { lat: number; lon: number };
@@ -200,7 +200,7 @@ export class GeocodingClient {
     return this.get<GeoResponse>('/v1/reverse', params);
   }
 
-  /** Lookup by Pelias gid. */
+  /** Lookup by place ID. */
   async place(ids: string | string[]): Promise<GeoResponse> {
     const params: Record<string, string> = {
       ids: Array.isArray(ids) ? ids.join(',') : ids,
