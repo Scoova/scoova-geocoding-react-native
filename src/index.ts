@@ -124,7 +124,7 @@ export class GeocodingError extends Error {
   }
 }
 
-const DEFAULT_BASE = 'https://geocoding.scoo-va.info';
+const DEFAULT_BASE = 'https://api.scoo-va.info/api/v1/geocoding';
 
 export interface ClientOptions {
   /**

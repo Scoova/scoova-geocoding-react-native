@@ -38,7 +38,7 @@ for (const row of batch.results) {
 | option           | type     | default                            | notes                                  |
 | ---------------- | -------- | ---------------------------------- | -------------------------------------- |
 | `apiKey`         | `string` | `SCOOVA_API_KEY` env, then `demo`  | sent as `X-API-Key`                    |
-| `baseUrl`        | `string` | `https://geocoding.scoo-va.info`   |                                        |
+| `baseUrl`        | `string` | `https://api.scoo-va.info/api/v1/geocoding` |                                   |
 | `locale`         | `string` | `'en'`                             | `?locale=` + `Accept-Language`         |
 | `lang`           | `string` | —                                  | legacy alias for `locale`              |
 | `androidPackage` | `string` | —                                  | `X-Android-Package` (key restriction)  |
